@@ -1,7 +1,8 @@
 import 'dart:async';
-
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue/flutter_blue.dart';
+import 'package:convert/convert.dart';
 
 void main() {
   runApp(MyApp());
@@ -24,7 +25,7 @@ class ConnectingPage extends StatefulWidget {
 
 class ConnectingPageState extends State<ConnectingPage> {
   String connectionText = "Bluetooth Disconnect";
-  final String CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb";
+  String recevieData = "No Data";
   final String TARGET_DEVICE_NAME = "KLIEN";
 
   FlutterBlue flutterBlue = FlutterBlue.instance;
@@ -32,7 +33,11 @@ class ConnectingPageState extends State<ConnectingPage> {
   BluetoothCharacteristic targetCharacteristic;
   StreamSubscription<ScanResult> scanSubScription;
 
+  Map<Guid, StreamSubscription> valueChangedSubscriptions = {};
+  final String CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb";
+
   List result;
+
   bool check = false;
 
   @override
@@ -112,6 +117,63 @@ class ConnectingPageState extends State<ConnectingPage> {
     });
   }
 
+  void sendButtonPressed() {
+    _discoverServices();
+    _TurnOnCharacterService();
+  }
+
+  _discoverServices() async {
+    BluetoothCharacteristic bluetoothCharacteristic;
+
+    List<BluetoothService> services = await targetDevice.discoverServices();
+    services.forEach((service) {
+      print("${service.uuid}");
+      List<BluetoothCharacteristic> blueChar = service.characteristics;
+      blueChar.forEach((f) {
+        print("Characteristic = ${f.uuid}");
+        if(f.uuid.toString().compareTo(CHARACTERISTIC_UUID) == 0)
+        {
+          bluetoothCharacteristic = f;
+        }
+      });
+    });
+
+      await bluetoothCharacteristic.write(
+          [0x4B, 0x01, 0x4E], withoutResponse: true);
+      await Future.delayed(Duration(milliseconds:  200));
+
+  }
+
+  _TurnOnCharacterService() async {
+    List<BluetoothService> services = await targetDevice.discoverServices();
+    services.forEach((service) {
+      service.characteristics.forEach((character) {
+        if(character.uuid.toString() == CHARACTERISTIC_UUID) {
+          _setNotification(character);
+        }
+      });
+    });
+  }
+
+  _setNotification(BluetoothCharacteristic bluetoothCharacteristic) async {
+    if(bluetoothCharacteristic.isNotifying) {
+      await bluetoothCharacteristic.setNotifyValue(false);
+
+      valueChangedSubscriptions[bluetoothCharacteristic.uuid]?.cancel();
+      valueChangedSubscriptions.remove(bluetoothCharacteristic.uuid);
+    } else {
+        await bluetoothCharacteristic.setNotifyValue(true);
+        final sub = bluetoothCharacteristic.value.listen((value) {
+          setState(() {
+            print('onValueChanged $value');
+            var data = hex.encode(value);
+            print('$data');
+            recevieData = data;
+          });
+        });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
    return MaterialApp(
@@ -128,7 +190,7 @@ class ConnectingPageState extends State<ConnectingPage> {
                  color:Colors.lightBlue,
                ))),
            Container(
-             width: 200,
+             width: 235,
              height: 50,
              color: Colors.white70,
              alignment: Alignment(0,0),
@@ -138,24 +200,45 @@ class ConnectingPageState extends State<ConnectingPage> {
                  .primaryTextTheme
                  .subtitle1
                  .copyWith(color: check? Colors.green : Colors.red, fontSize: 18.0, fontWeight: FontWeight.bold),
-             )), new Expanded(
-               child:new Align(
-                 alignment: Alignment.bottomCenter,
-                 child: Container(
-                   padding: EdgeInsets.only(left: 0, top: 0, bottom: 20),
-                   height: 90.0,
-                   child: SizedBox(
+             )),
+           Padding(padding: EdgeInsets.all(10)),
+          Container(
+            width: 235,
+            height: 50,
+            color: Colors.white70,
+            alignment: Alignment(0,0),
+            child: Text(
+              recevieData,
+              style: Theme.of(context)
+              .primaryTextTheme
+              .subtitle1
+              .copyWith(color: Colors.black, fontSize: 18.0, fontWeight: FontWeight.bold),
+            ),
+          ),
+           Padding(padding: EdgeInsets.all(70)),
+          SizedBox(
                      width:300.0,
-                     height: 50.0,
+                     height: 70.0,
                      child:RaisedButton(
                        shape: RoundedRectangleBorder(
                          borderRadius: BorderRadius.circular(18.0)
                        ),
                        child: Text("블루투스 연결하기", style: TextStyle(fontSize: 20.0)),
                        onPressed: this.blueBtn,
-                     )),
+                     ),
                  ),
-               ))
+           Padding(padding: EdgeInsets.all(10)),
+            SizedBox(
+                       width:300.0,
+                       height: 70.0,
+                       child:RaisedButton(
+                         shape: RoundedRectangleBorder(
+                             borderRadius: BorderRadius.circular(18.0)
+                         ),
+                         child: Text("데이터 보내기", style: TextStyle(fontSize: 20.0)),
+                         onPressed: sendButtonPressed,
+                       )),
+           Padding(padding: EdgeInsets.all(15)),
          ],
        ),
      ),
